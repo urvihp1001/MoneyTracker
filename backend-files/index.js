@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 const express= require("express")
 const cors=require("cors")
 const mongoose=require("mongoose")
@@ -54,5 +54,5 @@ mongoose.connect(process.env.DB_CONNECTION).then(
 //then() after connecting what to do
 app.listen(process.env.PORT,()=>{
     console.log("server is running on port",process.env.PORT)
->>>>>>> 48b4d514559fd60bbc96ac8b99d61fc79c615dd4
-})
+
+
