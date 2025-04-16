@@ -3,6 +3,7 @@ const cron=require("node-cron")
 const app=express()
 const dotenv=require("dotenv")
 const mongoose=require("mongoose")
+const {expenseEmail}=require("./EmailService/Expense")
 dotenv.config()
 //DB connection
 mongoose.connect(process.env.DB_CONNECTION).then(
@@ -17,7 +18,7 @@ mongoose.connect(process.env.DB_CONNECTION).then(
     const run=()=>
     {
         cron.schedule('* * * * * *',()=>{
-            console.log('running a task every sec')
+            expenseEmail()
         })
     }
     run()
