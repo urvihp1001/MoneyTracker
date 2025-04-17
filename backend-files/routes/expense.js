@@ -61,8 +61,4 @@ res.status(201).json("deleted successfully");
     res.status(500).json(err)
 }
 })
-<<<<<<< HEAD
 module.exports=router
-=======
-module.exports=router
->>>>>>> 48b4d514559fd60bbc96ac8b99d61fc79c615dd4
