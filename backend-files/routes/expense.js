@@ -62,4 +62,3 @@ res.status(201).json("deleted successfully");
 }
 })
 
-module.exports=router
