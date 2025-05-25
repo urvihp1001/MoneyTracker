@@ -8,10 +8,17 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-
 import { publicRequest } from './requestMethods';
 
-const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#00C49F'];
+const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#00C49F', '#e75480'];
+
+const sortByDate = (data) => data.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+// Helper to check if a date string is in the selected month
+const isInSelectedMonth = (dateStr, selectedMonth) => {
+  // dateStr: "YYYY-MM-DD", selectedMonth: "YYYY-MM"
+  return dateStr && dateStr.startsWith(selectedMonth);
+};
 
 function App() {
   const [expenses, setExpenses] = useState([]);
@@ -28,12 +35,19 @@ function App() {
     date: ''
   });
 
+  // NEW: Month selector state
+  const [selectedMonth, setSelectedMonth] = useState(
+    new Date().toISOString().slice(0, 7)
+  );
+
   useEffect(() => {
     const getExpenses = async () => {
       try {
         const res = await publicRequest.get("/expenses");
-        setExpenses(res.data.expenses);  // Assuming the expenses are in the 'expenses' field
-        setFilteredExpenses(res.data.expenses);  // Set both states when data is fetched
+        const sortedExpenses = sortByDate(res.data.expenses);
+        setExpenses(sortedExpenses);
+        // Don't filter here, filtering is handled below
+        setFilteredExpenses(sortedExpenses);
       } catch (error) {
         console.error(error);
       }
@@ -41,65 +55,66 @@ function App() {
     getExpenses();
   }, []);
 
+  // NEW: Filter by selected month and search term
+  useEffect(() => {
+    let filtered = expenses.filter(
+      (expense) => isInSelectedMonth(expense.date, selectedMonth)
+    );
+    if (searchTerm) {
+      filtered = filtered.filter(
+        (expense) =>
+          (expense.name && expense.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (expense.category && expense.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (expense.method && expense.method.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+    setFilteredExpenses(filtered);
+  }, [expenses, selectedMonth, searchTerm]);
 
   const handleSearch = () => {
-    const filtered = expenses.filter(
-      (expense) =>
-        (expense.name && expense.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (expense.category && expense.category.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (expense.method && expense.method.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-    setFilteredExpenses(filtered);
+    // Search is now handled by the effect above
+    // Just trigger the effect by updating searchTerm
+    setSearchTerm(searchTerm.trim());
   };
 
   const handleAddExpense = async () => {
     if (editIndex !== null) {
       try {
-        await publicRequest.put(`/expenses/${expenses[editIndex]._id}`, {
-           name: formData.name,
-          method: formData.method,
-          category: formData.category,
-          amount: Number(formData.amount),
-          date: formData.date
-        });
-        setExpenses((prev) => {
-          const updated = [...prev];
-          updated[editIndex] = { ...formData, amount: Number(formData.amount) };
-          return updated;
-        });
-        setFilteredExpenses((prev) => {  //Also update filtered array
-          const updated = [...prev];
-          updated[editIndex] = { ...formData, amount: Number(formData.amount) };
-          return updated;
-        });
+        const updatedExpense = {
+          ...formData,
+          amount: Number(formData.amount)
+        };
+        await publicRequest.put(`/expenses/${expenses[editIndex]._id}`, updatedExpense);
+        const updatedExpenses = [...expenses];
+        updatedExpenses[editIndex] = { ...updatedExpense, _id: expenses[editIndex]._id };
+        const sorted = sortByDate(updatedExpenses);
+        setExpenses(sorted);
         setEditIndex(null);
       } catch (error) {
         console.error(error);
       }
     } else {
       try {
-        const res =  await publicRequest.post("/expenses", {
-           name: formData.name,
-          method: formData.method,
-          category: formData.category,
-          amount: Number(formData.amount),
-          date: formData.date
+        const res = await publicRequest.post("/expenses", {
+          ...formData,
+          amount: Number(formData.amount)
         });
-        setExpenses([...expenses, res.data]);
-        setFilteredExpenses([...filteredExpenses, res.data]);
+        const newExpenses = sortByDate([...expenses, res.data]);
+        setExpenses(newExpenses);
       } catch (error) {
         console.error(error);
       }
     }
-    setFormData({  name: '', method: '', category: '', amount: '', date: '' });
+    setFormData({ name: '', method: '', category: '', amount: '', date: '' });
     setShowModal(false);
   };
 
   const handleDelete = async (id) => {
     try {
       await publicRequest.delete(`/expenses/${id}`);
-      setExpenses(expenses.filter((expense) => expense._id !== id));
-      setFilteredExpenses(filteredExpenses.filter((expense) => expense._id !== id));
+      const updatedExpenses = expenses.filter((expense) => expense._id !== id);
+      const sorted = sortByDate(updatedExpenses);
+      setExpenses(sorted);
     } catch (error) {
       console.error(error);
     }
@@ -107,26 +122,41 @@ function App() {
 
   const handleEdit = (index) => {
     setFormData(filteredExpenses[index]);
-    setEditIndex(index);
+    const originalIndex = expenses.findIndex(e => e._id === filteredExpenses[index]._id);
+    setEditIndex(originalIndex);
     setShowModal(true);
   };
 
+  // Only show category data for the selected month
   const categoryData = Object.values(
-    expenses.reduce((acc, curr) => {
+    filteredExpenses.reduce((acc, curr) => {
       acc[curr.category] = acc[curr.category] || { name: curr.category, value: 0 };
-      acc[curr.category].value += curr.amount;
+      acc[curr.category].value += Number(curr.amount);
       return acc;
     }, {})
   );
+
+  // Only show total for the selected month
+  const totalAmount = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
 
   return (
     <div className="flex flex-col justify-center items-center mt-[3%] w-[80%] mx-auto">
       <h1 className="text-2xl font-medium text-[#555]">Expense Tracker</h1>
 
+      {/* Month Selector */}
       <div className="flex items-center justify-between mt-5 w-full">
+        <div className="flex items-center gap-4">
+          <label className="font-semibold">Month:</label>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+            className="border rounded p-2"
+          />
+        </div>
         <div className="flex justify-between w-[300px]">
           <button
-            className="bg-[#af8978] p-[10px] border-none outline-none cursor-pointer text-white text-medium"
+            className="bg-[#e75480] p-[10px] border-none outline-none cursor-pointer text-white text-medium"
             onClick={() => {
               setFormData({ name: '', method: '', category: '', amount: '', date: '' });
               setEditIndex(null);
@@ -136,7 +166,7 @@ function App() {
             Add Expense
           </button>
           <button
-            className="bg-blue-300 p-[10px] border-none outline-none cursor-pointer text-black text-medium"
+            className="bg-blue-500 p-[10px] border-none outline-none cursor-pointer text-white text-medium"
             onClick={() => setShowReport(!showReport)}
           >
             Expense Report
@@ -159,7 +189,13 @@ function App() {
         </div>
       </div>
 
-      {/* Table */}
+      <p className="text-lg font-semibold mt-4 text-green-700">
+        Total Spent: ₹{totalAmount.toFixed(2)}
+      </p>
+      <p className="text-md text-gray-500 mb-2">
+        Showing expenses for: <span className="font-semibold">{selectedMonth}</span>
+      </p>
+
       <div className="w-full mt-8">
         <table className="w-full border-collapse">
           <thead>
@@ -173,34 +209,40 @@ function App() {
             </tr>
           </thead>
           <tbody>
-            {filteredExpenses.map((expense, index) => (
-              <tr key={index} className="border-b hover:bg-gray-50">
-                <td className="p-3">{expense.name}</td>
-                <td className="p-3">{expense.method}</td>
-                <td className="p-3">{expense.category}</td>
-                <td className="p-3">₹{expense.amount}</td>
-                <td className="p-3">{expense.date}</td>
-                <td className="p-3 flex gap-2">
-                  <button
-                    className="text-sm text-blue-600 hover:underline"
-                    onClick={() => handleEdit(index)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="text-sm text-red-600 hover:underline"
-                    onClick={() => handleDelete(expense._id)}
-                  >
-                    Delete
-                  </button>
+            {filteredExpenses.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="text-center text-gray-500 py-4">
+                  No expenses for this month.
                 </td>
               </tr>
-            ))}
+            ) : (
+              filteredExpenses.map((expense, index) => (
+                <tr key={index} className="border-b hover:bg-gray-50">
+                  <td className="p-3">{expense.name}</td>
+                  <td className="p-3">{expense.method}</td>
+                  <td className="p-3">{expense.category}</td>
+                  <td className="p-3">₹{Number(expense.amount).toFixed(2)}</td>
+                  <td className="p-3">{expense.date}</td>
+                  <td className="p-3 flex gap-2">
+                    <button
+                      className="text-sm text-blue-600 hover:underline"
+                      onClick={() => handleEdit(index)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="text-sm text-red-600 hover:underline"
+                      onClick={() => handleDelete(expense._id)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
-
-      {/* Modal */}
       {showModal && (
         <div className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-30 flex items-center justify-center z-10">
           <div className="bg-white p-6 rounded-lg w-[400px]">
@@ -212,20 +254,29 @@ function App() {
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               className="w-full mb-2 p-2 border rounded"
             />
-            <input
-              type="text"
-              placeholder="Payment Method"
+            <select
               value={formData.method}
               onChange={(e) => setFormData({ ...formData, method: e.target.value })}
-              className="w-full mb-2 p-2 border rounded"
-            />
-            <input
-              type="text"
-              placeholder="Category"
+              className="w-full mb-2 p-2 border rounded bg-white"
+            >
+              <option value="">Select Payment Method</option>
+              <option value="GPay">GPay</option>
+              <option value="Neu">Neu</option>
+              <option value="BOB">BOB</option>
+            </select>
+            <select
               value={formData.category}
               onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-              className="w-full mb-2 p-2 border rounded"
-            />
+              className="w-full mb-2 p-2 border rounded bg-white"
+            >
+              <option value="">Select Category</option>
+              <option value="Vegetables">Vegetables</option>
+              <option value="Fruits">Fruits</option>
+              <option value="Grocery">Grocery</option>
+              <option value="Urvi">Urvi</option>
+              <option value="Anuja">Anuja</option>
+              <option value="Misc">Misc</option>
+            </select>
             <input
               type="number"
               placeholder="Amount"
@@ -241,13 +292,13 @@ function App() {
             />
             <div className="flex justify-between">
               <button
-                className="bg-gray-300 text-white py-2 px-4 rounded"
+                className="bg-gray-400 text-white py-2 px-4 rounded hover:bg-gray-500"
                 onClick={() => setShowModal(false)}
               >
                 Cancel
               </button>
               <button
-                className="bg-blue-500 text-white py-2 px-4 rounded"
+                className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600"
                 onClick={handleAddExpense}
               >
                 {editIndex !== null ? 'Update' : 'Add'} Expense
@@ -257,7 +308,6 @@ function App() {
         </div>
       )}
 
-      {/* Expense Report */}
       {showReport && (
         <div className="mt-10 w-full flex justify-center">
           <ResponsiveContainer width="100%" height={300}>
@@ -273,12 +323,31 @@ function App() {
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(value)=>`₹${value.toFixed(2)}`} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
+          <div className="mt-8 w-full max-w-md">
+            <table className="table-auto w-full border border-gray-300">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="px-4 py-2 text-left">Category</th>
+                  <th className="px-4 py-2 text-right">Amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categoryData.map((item, index) => (
+                  <tr key={index} className="border-t border-gray-200">
+                    <td className="px-4 py-2">{item.name}</td>
+                    <td className="px-4 py-2 text-right">{item.value.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
+
     </div>
   );
 }
